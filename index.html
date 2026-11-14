@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0f1720">
+  <meta name="description" content="Planos PDF georreferenciados con tu posición GPS, pines y recorridos. Funciona sin conexión.">
+  <title>GeoPlano</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GeoPlano">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5-10-5Zm-10 9 10 5 10-5M2 16l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-locate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12Z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.5" fill="currentColor"/></symbol>
+    <symbol id="i-rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4.5" fill="currentColor"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-sat" viewBox="0 0 24 24"><path d="M3 7l6-3 6 3 6-3v13l-6 3-6-3-6 3V7Z M9 4v13 M15 7v13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+  </svg>
+
+  <div id="map" aria-label="Mapa"></div>
+  <div id="crosshair" aria-hidden="true"></div>
+
+  <header class="bar">
+    <button id="btnMaps" class="chip" aria-haspopup="dialog">
+      <svg><use href="#i-layers"/></svg><span id="activeName">Sin plano</span>
+    </button>
+    <button id="btnSync" class="chip small" aria-label="Estado de envío"><span id="syncText">✓ Al día</span></button>
+    <label class="opacity" id="opacityWrap" hidden>
+      <span>Plano</span>
+      <input id="opacity" type="range" min="0" max="100" value="100" aria-label="Opacidad del plano">
+    </label>
+  </header>
+
+  <div class="fabs">
+    <button id="btnBase" class="fab" aria-label="Cambiar mapa base"><svg><use href="#i-sat"/></svg></button>
+    <button id="btnLocate" class="fab" aria-label="Mi ubicación"><svg><use href="#i-locate"/></svg></button>
+    <button id="btnPin" class="fab accent" aria-label="Nuevo punto (defecto, evento o nota)"><svg><use href="#i-pin"/></svg></button>
+    <button id="btnRec" class="fab" aria-label="Grabar recorrido"><svg><use href="#i-rec"/></svg></button>
+    <button id="btnData" class="fab" aria-label="Pines y recorridos"><svg><use href="#i-list"/></svg></button>
+  </div>
+
+  <footer class="readout" id="readout">
+    <div id="gpsLine" class="gps">Toca el botón de ubicación para ver tu posición</div>
+    <div id="centerLine" class="center"></div>
+  </footer>
+
+  <!-- Hoja: planos -->
+  <section class="sheet" id="sheetMaps" role="dialog" aria-label="Planos" hidden>
+    <div class="sheet-head">
+      <h2>Planos</h2>
+      <button class="icon" data-close aria-label="Cerrar"><svg><use href="#i-close"/></svg></button>
+    </div>
+    <button id="btnImport" class="primary">Importar GeoPDF</button>
+    <p class="hint">El PDF se procesa en tu teléfono. No se sube a ningún servidor.</p>
+    <ul id="mapList" class="list"></ul>
+  </section>
+
+  <!-- Hoja: datos -->
+  <section class="sheet" id="sheetData" role="dialog" aria-label="Puntos y recorridos" hidden>
+    <div class="sheet-head">
+      <h2>Puntos y recorridos</h2>
+      <button class="icon" data-close aria-label="Cerrar"><svg><use href="#i-close"/></svg></button>
+    </div>
+    <div class="filters" id="filters"></div>
+    <div class="row wrap">
+      <button id="btnExportZip" class="secondary">Excel + fotos (ZIP)</button>
+      <button id="btnExportKml" class="secondary">KML</button>
+      <button id="btnExportGeo" class="secondary">GeoJSON</button>
+    </div>
+    <h3 id="pointsHead">Puntos</h3>
+    <ul id="pinList" class="list"></ul>
+    <h3>Recorridos</h3>
+    <ul id="trackList" class="list"></ul>
+  </section>
+
+  <!-- Hoja: punto (nuevo / editar) -->
+  <section class="sheet tall" id="sheetPoint" role="dialog" aria-label="Punto" hidden>
+    <div class="sheet-head">
+      <h2 id="pointTitle">Nuevo punto</h2>
+      <button class="icon" data-close aria-label="Cerrar"><svg><use href="#i-close"/></svg></button>
+    </div>
+    <form id="pointForm" class="form" autocomplete="off">
+      <div class="seg" id="typeSeg"></div>
+      <div id="catWrap"><label for="pCat">Categoría</label><select id="pCat" name="category"></select></div>
+      <label for="pName">Título</label>
+      <input id="pName" type="text" name="name" required>
+      <div id="sevWrap"><label>Severidad</label><div class="seg" id="sevSeg"></div></div>
+      <label>Estado</label>
+      <div class="seg" id="statusSeg"></div>
+      <label for="pAssignee">Responsable</label>
+      <input id="pAssignee" type="text" name="assignee" placeholder="Opcional">
+      <label for="pNote">Nota</label>
+      <textarea id="pNote" name="note" rows="3" placeholder="Qué se ve, medidas, referencia (fila / mesa / string)…"></textarea>
+      <label>Fotos</label>
+      <div class="photos" id="photoGrid"></div>
+      <div class="row">
+        <button type="button" class="secondary" id="btnCamera">Cámara</button>
+        <button type="button" class="secondary" id="btnGallery">Galería</button>
+      </div>
+      <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+      <input type="file" id="galleryInput" accept="image/*" multiple hidden>
+      <div id="whereWrap"><label>Ubicación</label><div class="seg" id="whereSeg"></div></div>
+      <p class="hint" id="pointMeta"></p>
+      <label for="pAuthor">Tu nombre</label>
+      <input id="pAuthor" type="text" name="author" placeholder="Quién registra">
+      <div class="row form-actions">
+        <button type="button" class="danger" id="btnDelPoint">Borrar</button>
+        <button type="submit" class="primary">Guardar</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- Modal genérico -->
+  <div class="modal" id="modal" hidden>
+    <form class="modal-card" id="modalForm" method="dialog">
+      <h2 id="modalTitle"></h2>
+      <div id="modalBody"></div>
+      <div class="row end">
+        <button type="button" class="secondary" id="modalCancel">Cancelar</button>
+        <button type="submit" class="primary" id="modalOk">Guardar</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="busy" id="busy" hidden><div class="spinner"></div><p id="busyMsg">Procesando…</p></div>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <input type="file" id="file" accept="application/pdf,.pdf" multiple hidden>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
