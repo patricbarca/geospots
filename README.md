@@ -2,7 +2,7 @@
 
 App web tipo Avenza, pensada para equipos en terreno. Importas un GeoPDF, ves tu posición GPS sobre el plano y registras defectos, eventos y notas con fotos. Todo se comparte con tu equipo.
 
-**App:** https://geospots.comandia.workers.dev
+**App:** https://geospots.patricbarca.workers.dev
 La dirección vieja, patricbarca.github.io/geospots, redirige a la nueva.
 
 ## Qué hace
