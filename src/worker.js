@@ -5,7 +5,7 @@
 
 const DAY = 86400000;
 const SESSION_MS = 90 * DAY;
-const INVITE_MS = 14 * DAY;
+const INVITE_MS = 7 * DAY;
 const PBKDF2_ITER = 20000; // ~5 ms de CPU: cabe en los 10 ms del plan gratis (medido en Comandia)
 const MAX_FILE = 60 * 1024 * 1024;
 const MAX_RECORD = 256 * 1024;
@@ -124,6 +124,14 @@ async function body(req) {
   try { return await req.json(); } catch { throw new HttpError(400, 'Solicitud inválida.', 'json'); }
 }
 
+// Crear una empresa nueva (sin invitación) exige el código de alta (secreto SIGNUP_CODE), que va en el link de alta.
+// OPEN_SIGNUP = "true" deja el registro abierto a cualquiera.
+function canOpenSignup(env, code) {
+  if (env.OPEN_SIGNUP === 'true') return true;
+  const want = String(env.SIGNUP_CODE || '');
+  return want.length >= 16 && typeof code === 'string' && safeEqual(code, want);
+}
+
 async function teamsOf(env, userId) {
   const { results } = await env.DB.prepare(`SELECT t.id, t.name, m.role FROM members m JOIN teams t ON t.id = m.team_id
     WHERE m.user_id = ? ORDER BY m.created_at`).bind(userId).all();
@@ -175,10 +183,11 @@ async function api(req, env, ctx, url) {
   }
 
   if (path === '/api/health') return json({ ok: true, version: env.APP_VERSION });
+  if (path === '/api/config' && method === 'GET') return json({ openSignup: env.OPEN_SIGNUP === 'true' });
 
   // --- cuenta ---
   if (path === '/api/auth/signup' && method === 'POST') {
-    await enforceRate(env, 'signup:' + clientIp(req), 10, 60 * 60000);
+    await enforceRate(env, 'signup:' + clientIp(req), 30, 60 * 60000); // solo con invitación o link de alta: se permite inscribir una cuadrilla desde el mismo wifi
     const b = await body(req);
     const email = normEmail(b.email), name = clean(b.name, 80), teamName = clean(b.team, 80);
     if (!validEmail(email)) throw new HttpError(400, 'Revisa el email.', 'email');
@@ -186,7 +195,10 @@ async function api(req, env, ctx, url) {
     const bad = checkPassword(b.password, email); if (bad) throw new HttpError(400, bad, 'password');
     let inv = null;
     if (b.invite) { inv = await findInvite(env, b.invite); if (!inv) throw new HttpError(400, 'La invitación venció o ya no es válida. Pide una nueva.', 'invitacion'); }
-    else if (!teamName) throw new HttpError(400, 'Escribe el nombre de tu empresa o equipo.', 'equipo');
+    else {
+      if (!canOpenSignup(env, b.signupCode)) throw new HttpError(403, 'Para crear una cuenta necesitas una invitación. Pídele el link al administrador de tu empresa.', 'registro-cerrado');
+      if (!teamName) throw new HttpError(400, 'Escribe el nombre de tu empresa o equipo.', 'equipo');
+    }
     if (await env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first()) {
       throw new HttpError(409, 'Ya existe una cuenta con ese email. Inicia sesión.', 'existe');
     }
@@ -251,9 +263,22 @@ async function api(req, env, ctx, url) {
     const sub = parts[2];
 
     if (sub === 'members' && method === 'GET') {
-      const { results } = await env.DB.prepare(`SELECT u.name, u.email, m.role FROM members m JOIN users u ON u.id = m.user_id
+      const { results } = await env.DB.prepare(`SELECT u.id, u.name, u.email, m.role FROM members m JOIN users u ON u.id = m.user_id
         WHERE m.team_id = ? ORDER BY m.created_at`).bind(teamId).all();
-      return json({ members: results });
+      return json({ members: results.map((m) => ({ ...m, me: m.id === user.id, email: role === 'admin' ? m.email : undefined })) });
+    }
+
+    if (sub === 'members' && parts[3] && method === 'DELETE') {
+      if (role !== 'admin') throw new HttpError(403, 'Solo un administrador puede quitar miembros.', 'sin-acceso');
+      const target = parts[3];
+      if (target === user.id) throw new HttpError(400, 'No puedes quitarte a ti mismo.', 'propio');
+      const m = await env.DB.prepare('SELECT role FROM members WHERE team_id = ? AND user_id = ?').bind(teamId, target).first();
+      if (!m) throw new HttpError(404, 'Esa persona ya no está en el equipo.', 'no-existe');
+      await env.DB.prepare('DELETE FROM members WHERE team_id = ? AND user_id = ?').bind(teamId, target).run();
+      // Si ya no pertenece a ningún equipo, se cierran sus sesiones.
+      const other = await env.DB.prepare('SELECT 1 FROM members WHERE user_id = ? LIMIT 1').bind(target).first();
+      if (!other) await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target).run();
+      return json({ ok: true });
     }
 
     if (sub === 'invites' && method === 'POST') {
@@ -261,9 +286,9 @@ async function api(req, env, ctx, url) {
       const b = await body(req);
       const r = b.role === 'admin' ? 'admin' : 'miembro';
       const token = randomToken(24), now = Date.now();
-      await env.DB.prepare('INSERT INTO invites (token_hash, team_id, role, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+      await env.DB.prepare('INSERT INTO invites (token_hash, team_id, role, created_by, created_at, expires_at, max_uses) VALUES (?, ?, ?, ?, ?, ?, 1)')
         .bind(await sha256(token), teamId, r, user.id, now, now + INVITE_MS).run();
-      return json({ url: `${url.origin}/?invite=${token}`, expiresAt: new Date(now + INVITE_MS).toISOString(), role: r });
+      return json({ url: `${url.origin}/?invite=${token}`, expiresAt: new Date(now + INVITE_MS).toISOString(), role: r, uses: 1 });
     }
 
     // Cambios desde seq (paginado)

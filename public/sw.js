@@ -1,6 +1,6 @@
 // Service worker: la app y sus librerías quedan guardadas para usarse sin conexión.
 // Las teselas del mapa base se guardan a medida que se ven (las zonas visitadas funcionan offline).
-const VERSION = 'v6';
+const VERSION = 'v7';
 const SHELL = `geoplano-shell-${VERSION}`;
 const TILES = 'geoplano-tiles';
 const MAX_TILES = 4000;

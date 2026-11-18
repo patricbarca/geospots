@@ -3,3 +3,4 @@ samples/
 *.pdf
 node_modules/
 .wrangler/
+.dev.vars

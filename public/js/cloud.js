@@ -64,8 +64,8 @@ export async function refreshMe() {
   }
 }
 
-export async function signup({ name, email, password, team, invite }) {
-  const res = await call('/auth/signup', { method: 'POST', json: { name, email, password, team, invite } });
+export async function signup({ name, email, password, team, invite, signupCode }) {
+  const res = await call('/auth/signup', { method: 'POST', json: { name, email, password, team, invite, signupCode } });
   await adoptAccount(res);
 }
 export async function login({ email, password, invite }) {
@@ -114,6 +114,8 @@ export async function acceptInvite(token) {
 }
 export const createInvite = (role = 'miembro') => call(`/teams/${cfg.teamId}/invites`, { method: 'POST', json: { role } });
 export const members = () => call(`/teams/${cfg.teamId}/members`);
+export const removeMember = (userId) => call(`/teams/${cfg.teamId}/members/${encodeURIComponent(userId)}`, { method: 'DELETE', json: {} });
+export async function getConfig() { try { return await call('/config'); } catch { return { openSignup: false }; } }
 export const usage = () => call(`/teams/${cfg.teamId}/usage`);
 
 // ---------- envío ----------
@@ -211,6 +213,18 @@ async function pull() {
   return changed;
 }
 
+// Un administrador quitó a esta persona del equipo: se borra lo local de ese equipo.
+async function lostAccess() {
+  const lost = cloud.team?.name || 'el equipo';
+  const before = cfg.teamId;
+  await refreshMe();
+  if (cfg.user && cfg.teamId === before && (cfg.teams || []).some((t) => t.id === before)) return; // sigue en el equipo
+  await wipeLocal();
+  if (cfg.seq) delete cfg.seq[before];
+  save();
+  emit({ type: 'removed', team: lost });
+}
+
 let running = null;
 export function sync() {
   if (running) return running;
@@ -219,7 +233,10 @@ export function sync() {
     if (!navigator.onLine) return { ok: false, reason: 'offline' };
     const pushed = await syncNow();
     let changed = false;
-    try { changed = await pull(); } catch (e) { return { ok: false, reason: 'error', error: e.message, sent: pushed.sent }; }
+    try { changed = await pull(); } catch (e) {
+      if (e.status === 403 || e.status === 401) { await lostAccess(); return { ok: false, reason: 'sin-acceso', error: e.message }; }
+      return { ok: false, reason: 'error', error: e.message, sent: pushed.sent };
+    }
     cfg.lastSync = new Date().toISOString(); save();
     if (changed) emit('data');
     emit('synced');

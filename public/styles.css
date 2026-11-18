@@ -245,3 +245,10 @@ body.placing .fabs, body.placing .readout { opacity: .35; pointer-events: none; 
 .ptable .tthumb { width: 30px; height: 30px; object-fit: cover; border-radius: 5px; margin-right: 6px; vertical-align: middle; }
 .ptable td.empty { color: var(--muted); white-space: normal; padding: 20px 12px; }
 body.table-open .bar, body.table-open .fabs, body.table-open .readout { visibility: hidden; }
+
+/* Registro solo con invitación y miembros */
+.invite-only { margin: 0 0 10px; }
+.small-link { display: block; margin: 6px auto 0; font-size: 13px; color: var(--muted); font-weight: 500; }
+.list.compact li .who { flex: 1; min-width: 0; }
+.list.compact li .who small { display: block; margin: 0; }
+.list.compact li .rm { background: rgba(255,138,128,.12); color: #ff8a80; border: 0; border-radius: 8px; padding: 5px 9px; font-size: 12px; margin-left: 8px; }

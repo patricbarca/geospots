@@ -17,6 +17,6 @@
   "r2_buckets": [
     { "binding": "FILES", "bucket_name": "geospots-files" }
   ],
-  "vars": { "APP_VERSION": "0.2.0" },
+  "vars": { "APP_VERSION": "0.3.0" },
   "observability": { "enabled": true }
 }

@@ -579,7 +579,13 @@ async function renderAccount() {
   if (!navigator.onLine) { $('#accMembers').innerHTML = '<li class="empty">Sin conexión</li>'; return; }
   try {
     const [{ members }, u] = await Promise.all([cl.members(), cl.usage()]);
-    $('#accMembers').innerHTML = members.map((m) => `<li><span>${esc(m.name)}</span><small>${m.role === 'admin' ? 'admin' : 'miembro'}</small></li>`).join('');
+    const admin = cloud.team?.role === 'admin';
+    $('#accMembers').innerHTML = members.map((m) => `<li><div class="who"><span>${esc(m.name)}${m.me ? ' (tú)' : ''}</span>${m.email ? `<small>${esc(m.email)}</small>` : ''}</div><small>${m.role === 'admin' ? 'admin' : 'miembro'}</small>${admin && !m.me ? `<button type="button" class="rm" data-rm="${esc(m.id)}" data-name="${esc(m.name)}">Quitar</button>` : ''}</li>`).join('');
+    $('#accMembers').querySelectorAll('[data-rm]').forEach((b) => (b.onclick = async () => {
+      if (!(await confirmBox('Quitar del equipo', `${b.dataset.name} dejará de ver los planos y puntos de ${cloud.team?.name}. Lo que registró queda en el equipo.`, 'Quitar'))) return;
+      try { await cl.removeMember(b.dataset.rm); toast(`${b.dataset.name} ya no tiene acceso`); } catch (e) { toast(e.message); }
+      renderAccount();
+    }));
     $('#accUsage').textContent = `${(u.bytes / 1048576).toFixed(1)} MB en ${u.files} archivo${u.files === 1 ? '' : 's'} · ${u.records.map || 0} planos · ${u.records.pin || 0} puntos · ${u.records.track || 0} recorridos`;
   } catch (e) { $('#accMembers').innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
 }
@@ -599,7 +605,7 @@ async function submitAuth(form, errEl, fn) {
   } finally { btn.disabled = false; }
 }
 $('#loginForm').onsubmit = (e) => { e.preventDefault(); submitAuth(e.target, $('#loginErr'), (v) => cl.login({ ...v, invite: inviteToken })); };
-$('#signupForm').onsubmit = (e) => { e.preventDefault(); submitAuth(e.target, $('#signupErr'), (v) => cl.signup({ ...v, invite: inviteToken })); };
+$('#signupForm').onsubmit = (e) => { e.preventDefault(); submitAuth(e.target, $('#signupErr'), (v) => cl.signup({ ...v, invite: inviteToken, signupCode })); };
 
 $('#btnSyncNow').onclick = async () => {
   const b = $('#btnSyncNow'); b.disabled = true; b.textContent = 'Sincronizando…';
@@ -623,7 +629,7 @@ $('#btnInvite').onclick = async () => {
     const r = await cl.createInvite('miembro');
     const box = $('#inviteOut');
     box.hidden = false;
-    box.innerHTML = `Comparte este link (vale 14 días):<br><b>${esc(r.url)}</b><div class="row"><button type="button" data-copy>Copiar</button>${navigator.share ? '<button type="button" data-share>Compartir</button>' : ''}</div>`;
+    box.innerHTML = `Link para <b>una persona</b> (vence en 7 días). Genera uno distinto para cada persona:<br><b>${esc(r.url)}</b><div class="row"><button type="button" data-copy>Copiar</button>${navigator.share ? '<button type="button" data-share>Compartir</button>' : ''}</div>`;
     box.querySelector('[data-copy]').onclick = async () => { try { await navigator.clipboard.writeText(r.url); toast('Link copiado'); } catch { toast('No se pudo copiar'); } };
     const sh = box.querySelector('[data-share]');
     if (sh) sh.onclick = () => navigator.share({ title: 'GeoSpots', text: `Te invito a ${cloud.team?.name} en GeoSpots`, url: r.url }).catch(() => {});
@@ -650,6 +656,12 @@ function closeHome() { $('#viewHome').hidden = true; }
 function refreshViews() { if (homeOpen()) renderHome(); refreshTable(); }
 
 let homeThumbs = [];
+let serverConfig = { openSignup: false };
+// Link de alta de empresa: ?alta=<código>. Habilita crear cuenta + empresa sin invitación.
+let signupCode = new URLSearchParams(location.search).get('alta');
+const adminSignup = !!signupCode;
+if (signupCode) history.replaceState(null, '', location.pathname);
+cl.getConfig().then((c) => { serverConfig = c; if (homeOpen()) renderHome(); });
 function renderHome() {
   const inSession = !!cloud.user;
   const noServer = cloud.available === false;
@@ -661,6 +673,10 @@ function renderHome() {
   $('#homeLocal').textContent = state.maps.length || state.pins.length ? 'Seguir sin cuenta (solo en este teléfono)' : 'Usar sin cuenta (solo en este teléfono)';
   $('#sTeamWrap').hidden = !!inviteToken;
   $('#sTeam').required = !inviteToken;
+  const canSignup = !!inviteToken || serverConfig.openSignup || adminSignup;
+  $('#accTabs').hidden = !canSignup;
+  $('#inviteOnly').hidden = canSignup || noServer;
+  if (!canSignup) setTab('login');
   const acc = $('#homeAccount');
   acc.hidden = !inSession;
   if (inSession) acc.textContent = `${cloud.user.name.split(' ')[0]} · ${cloud.team?.name || 'Sin equipo'}`;
@@ -752,6 +768,7 @@ async function reloadAll() {
   updateSyncBadge();
 }
 cl.onCloudChange((what) => {
+  if (what?.type === 'removed') { toast(`Ya no tienes acceso a ${what.team}.`, 6000); reloadAll().then(openHome); return; }
   if (what === 'data') reloadAll();
   else updateSyncBadge();
   if (what === 'session') toast('Tu sesión venció. Entra de nuevo para seguir enviando.', 5000);
@@ -977,6 +994,7 @@ function toast(msg, ms = 3000) {
   }
   // Cuenta: invitación por link, sesión y primera sincronización
   inviteToken = new URLSearchParams(location.search).get('invite');
+  if (adminSignup && !cloud.user) setTab('signup');
   await cl.refreshMe();
   if (inviteToken) {
     history.replaceState(null, '', location.pathname);
