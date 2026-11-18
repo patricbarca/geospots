@@ -29,6 +29,14 @@
 
   <div id="map" aria-label="Mapa"></div>
   <div id="crosshair" aria-hidden="true"></div>
+  <div class="placebar" id="placeBar" hidden>
+    <p><b>Toca el mapa</b> donde está el punto</p>
+    <div class="row">
+      <button type="button" id="placeGps">Usar mi GPS</button>
+      <button type="button" id="placeCenter">Usar la cruz</button>
+      <button type="button" id="placeCancel" class="ghost">Cancelar</button>
+    </div>
+  </div>
 
   <header class="bar">
     <button id="btnMaps" class="chip" aria-haspopup="dialog">

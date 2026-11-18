@@ -321,7 +321,44 @@ document.addEventListener('click', (e) => {
   openPointEditor(state.pins.find((p) => p.id === id));
 });
 
-$('#btnPin').onclick = () => openPointEditor(null);
+// --- ubicar un punto nuevo: tocar el mapa, usar el GPS o la cruz ---
+let pickMarker = null;
+function showPick(coords) {
+  if (!pickMarker) {
+    const el = document.createElement('div');
+    el.className = 'pick-marker';
+    el.innerHTML = pinSvg('#ff5c35');
+    pickMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' });
+  }
+  pickMarker.setLngLat(coords).addTo(map);
+}
+function hidePick() { pickMarker?.remove(); }
+const gpsOk = () => state.pos && state.pos.accuracy <= 100;
+
+function startPlacing() {
+  closeSheets();
+  setFollow(false);
+  state.placing = true;
+  document.body.classList.add('placing');
+  $('#placeBar').hidden = false;
+  $('#placeGps').disabled = !gpsOk();
+  $('#placeGps').textContent = gpsOk() ? `Usar mi GPS (±${Math.round(state.pos.accuracy)} m)` : 'GPS sin señal';
+}
+function stopPlacing() {
+  state.placing = false;
+  document.body.classList.remove('placing');
+  $('#placeBar').hidden = true;
+}
+async function placeAt(coords, accuracy = null) {
+  stopPlacing();
+  await openPointEditor(null, { coords, accuracy });
+  showPick(coords);
+}
+$('#btnPin').onclick = () => (state.placing ? stopPlacing() : startPlacing());
+$('#placeCancel').onclick = stopPlacing;
+$('#placeCenter').onclick = () => { const c = map.getCenter(); placeAt([c.lng, c.lat]); };
+$('#placeGps').onclick = () => { if (gpsOk()) placeAt([state.pos.lon, state.pos.lat], Math.round(state.pos.accuracy)); };
+
 
 // --- editor de punto ---
 const editor = { point: null, photos: [], removed: [] }; // photos: [{id, blob, isNew}]
@@ -338,10 +375,11 @@ function fillCategories(type, value) {
   $('#pCat').innerHTML = cats.map((c) => `<option ${c === value ? 'selected' : ''}>${esc(c)}</option>`).join('');
 }
 
-async function openPointEditor(point) {
+async function openPointEditor(point, place = null) {
   const isNew = !point;
   const type = point?.type || prefs.get('lastType', 'defecto');
   editor.point = point;
+  editor.place = place;
   editor.removed = [];
   editor.photos = isNew ? [] : (await db.byIndex('photos', 'pointId', point.id)).map((ph) => ({ id: ph.id, blob: ph.blob, isNew: false }));
   $('#pointTitle').textContent = isNew ? 'Nuevo punto' : 'Editar punto';
@@ -355,11 +393,15 @@ async function openPointEditor(point) {
   f.assignee.value = point?.assignee || '';
   f.note.value = point?.note || '';
   f.author.value = point?.author || prefs.get('author', '');
-  const hasGps = state.pos && state.pos.accuracy <= 100;
   $('#whereWrap').hidden = !isNew;
   if (isNew) {
-    radios($('#whereSeg'), 'where', { gps: hasGps ? `Mi posición ±${Math.round(state.pos.accuracy)} m` : 'Mi posición (sin GPS)', center: 'Centro (cruz)' }, hasGps ? 'gps' : 'center');
-    if (!hasGps) $('#whereSeg input[value=gps]').disabled = true;
+    const [lon, lat] = place.coords;
+    let txt = place.accuracy != null ? `Tu posición GPS ±${place.accuracy} m` : 'Donde marcaste en el mapa';
+    if (state.active) {
+      const r = insideOrDistance([lon, lat], state.active.corners);
+      txt += r.inside ? ' · en el plano' : ` · ⚠ a ${fmtDist(r.dist)} del plano`;
+    }
+    $('#whereSeg').innerHTML = `<small>${esc(txt)}<br>${fmtEN(lon, lat)}</small>`;
   }
   $('#pointMeta').textContent = isNew ? '' : `Creado ${new Date(point.createdAt).toLocaleString('es-CL')}${point.author ? ' por ' + point.author : ''} · ${point.syncedAt ? 'enviado ✓' : 'pendiente de envío'}`;
   $('#btnDelPoint').hidden = isNew;
@@ -407,11 +449,8 @@ $('#pointForm').onsubmit = async (e) => {
   const now = new Date().toISOString();
   const old = editor.point;
   let coords = old?.coords, accuracy = old?.accuracy ?? null;
-  if (!old) {
-    const c = map.getCenter();
-    if (fd.where === 'gps' && state.pos) { coords = [state.pos.lon, state.pos.lat]; accuracy = Math.round(state.pos.accuracy); }
-    else coords = [c.lng, c.lat];
-  }
+  if (!old) ({ coords, accuracy } = editor.place);
+  try {
   const id = old?.id || uid();
   for (const pid of editor.removed) await db.del('photos', pid);
   for (const ph of editor.photos.filter((x) => x.isNew)) await db.put('photos', { id: ph.id, pointId: id, blob: ph.blob, createdAt: now });
@@ -428,9 +467,16 @@ $('#pointForm').onsubmit = async (e) => {
   await enqueue('pins', id);
   prefs.set('author', point.author);
   prefs.set('lastType', point.type);
+  if (!filters.types.has(point.type)) { filters.types.add(point.type); prefs.set('fTypes', [...filters.types]); }
+  if (filters.openOnly && point.status === 'resuelto') { filters.openOnly = false; prefs.set('fOpen', false); }
   closeSheets();
   await loadPins();
-  toast(`${TYPES[point.type].label} guardado en el teléfono`);
+  if (!map.getBounds().contains(point.coords)) map.easeTo({ center: point.coords });
+  toast(`Guardado en el teléfono: ${point.name}`);
+  } catch (err) {
+    console.error(err);
+    toast('No se pudo guardar: ' + (err?.message || err), 6000);
+  }
 };
 
 $('#btnDelPoint').onclick = async () => {
@@ -653,11 +699,11 @@ $('#btnExportZip').onclick = () => exportZip();
 
 // ---------- hojas, modales, avisos ----------
 function openSheet(id) { closeSheets(); $(id).hidden = false; }
-function closeSheets() { document.querySelectorAll('.sheet').forEach((s) => (s.hidden = true)); }
+function closeSheets() { document.querySelectorAll('.sheet').forEach((s) => (s.hidden = true)); hidePick(); }
 document.querySelectorAll('[data-close]').forEach((b) => (b.onclick = closeSheets));
 $('#btnMaps').onclick = () => ($('#sheetMaps').hidden ? openSheet('#sheetMaps') : closeSheets());
 $('#btnData').onclick = () => ($('#sheetData').hidden ? openSheet('#sheetData') : closeSheets());
-map.on('click', closeSheets);
+map.on('click', (e) => (state.placing ? placeAt([e.lngLat.lng, e.lngLat.lat]) : closeSheets()));
 
 function formBox(title, html, okText = 'Guardar') {
   return new Promise((resolve) => {
