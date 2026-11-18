@@ -12,7 +12,7 @@
     "run_worker_first": ["/api/*"]
   },
   "d1_databases": [
-    { "binding": "DB", "database_name": "geospots", "database_id": "5d7a1c2e-0b1f-4c4e-9a51-3f0c2b7d9e10", "migrations_dir": "migrations" }
+    { "binding": "DB", "database_name": "geospots", "database_id": "c550a8a3-d2ec-4174-a2ec-891d33a6ac04", "migrations_dir": "migrations" }
   ],
   "r2_buckets": [
     { "binding": "FILES", "bucket_name": "geospots-files" }
