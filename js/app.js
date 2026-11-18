@@ -1,4 +1,4 @@
-// GeoPlano: planos GeoPDF sobre el mapa con GPS, pines y recorridos.
+// GeoSpots: planos GeoPDF sobre el mapa con GPS, pines y recorridos.
 import { db, uid } from './db.js';
 import { importPdf } from './importer.js';
 import { makeProj, utmFor, distM, lineLengthM, insideOrDistance, fmtDist } from './geo.js';
@@ -647,7 +647,7 @@ function exportKML() {
     return `<Placemark><name>${x(p.name)}</name><styleUrl>#${p.status === 'resuelto' ? 'resuelto' : p.type}</styleUrl><description>${x([pr.tipo, pr.categoria, pr.severidad, pr.estado, p.note].filter(Boolean).join(' · '))}</description><ExtendedData>${data}</ExtendedData><Point><coordinates>${p.coords[0]},${p.coords[1]}</coordinates></Point></Placemark>`;
   });
   const tr = state.tracks.map((t) => `<Placemark><name>${x(t.name)}</name><Style><LineStyle><color>ffe43f7b</color><width>4</width></LineStyle></Style><LineString><tessellate>1</tessellate><coordinates>${t.coords.map((c) => c.join(',')).join(' ')}</coordinates></LineString></Placemark>`);
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>GeoPlano</name>${styles}${pins.join('')}${tr.join('')}</Document></kml>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>GeoSpots</name>${styles}${pins.join('')}${tr.join('')}</Document></kml>`;
 }
 
 function exportCSV() {
@@ -678,7 +678,7 @@ async function exportZip() {
         .forEach((ph, i) => zip.file(`fotos/${p.id}-${i + 1}.jpg`, ph.blob));
     }
     const blob = await zip.generateAsync({ type: 'blob' });
-    await download(blob, `geoplano-${stamp()}.zip`, 'application/zip', true);
+    await download(blob, `geospots-${stamp()}.zip`, 'application/zip', true);
   } finally { busy(null); }
 }
 
@@ -693,8 +693,8 @@ async function download(content, name, type, force = false) {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-$('#btnExportGeo').onclick = () => download(exportGeoJSON(), `geoplano-${stamp()}.geojson`, 'application/geo+json');
-$('#btnExportKml').onclick = () => download(exportKML(), `geoplano-${stamp()}.kml`, 'application/vnd.google-earth.kml+xml');
+$('#btnExportGeo').onclick = () => download(exportGeoJSON(), `geospots-${stamp()}.geojson`, 'application/geo+json');
+$('#btnExportKml').onclick = () => download(exportKML(), `geospots-${stamp()}.kml`, 'application/vnd.google-earth.kml+xml');
 $('#btnExportZip').onclick = () => exportZip();
 
 // ---------- hojas, modales, avisos ----------

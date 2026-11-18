@@ -1,12 +1,13 @@
 // Service worker: la app y sus librerías quedan guardadas para usarse sin conexión.
 // Las teselas del mapa base se guardan a medida que se ven (las zonas visitadas funcionan offline).
-const VERSION = 'v3';
+const VERSION = 'v4';
 const SHELL = `geoplano-shell-${VERSION}`;
 const TILES = 'geoplano-tiles';
 const MAX_TILES = 4000;
 
 const LOCAL = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'js/app.js', 'js/geo.js', 'js/db.js', 'js/importer.js', 'js/inspect.js',
-  'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
+  'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
+  'icons/maskable-512.png', 'icons/apple-touch-180.png'];
 const CDN = [
   'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js',
   'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',

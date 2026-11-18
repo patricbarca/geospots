@@ -1,4 +1,4 @@
-# GeoPlano (PWA)
+# GeoSpots (PWA)
 
 App web tipo Avenza: importas un GeoPDF y ves tu posición GPS sobre el plano.
 
