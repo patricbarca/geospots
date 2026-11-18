@@ -39,6 +39,7 @@
   </div>
 
   <header class="bar">
+    <button id="btnHome" class="chip logo-btn" aria-label="Inicio"><img src="icons/icon.svg" alt=""></button>
     <button id="btnMaps" class="chip" aria-haspopup="dialog">
       <svg><use href="#i-layers"/></svg><span id="activeName">Sin plano</span>
     </button>
@@ -73,6 +74,90 @@
     <ul id="mapList" class="list"></ul>
   </section>
 
+  <!-- Vista principal -->
+  <main class="home" id="viewHome" hidden>
+    <div class="home-inner">
+      <header class="home-head">
+        <img src="icons/icon.svg" alt="" class="home-logo">
+        <div><h1>GeoSpots</h1><p class="home-sub" id="homeSub">Planos georreferenciados para inspección en terreno</p></div>
+        <button type="button" class="chip small" id="homeAccount" hidden></button>
+      </header>
+
+      <!-- Sin sesión -->
+      <section id="homeOut" hidden>
+        <p class="home-lead">Carga tus GeoPDF, ubícate con el GPS y registra defectos, eventos y notas con fotos. Tu equipo lo ve todo, incluso sin señal.</p>
+        <div id="accOut">
+          <div class="invite-box" id="accInvite" hidden></div>
+          <div class="seg tabs" id="accTabs">
+            <label><input type="radio" name="accTab" value="login" checked>Entrar</label>
+            <label><input type="radio" name="accTab" value="signup">Crear cuenta</label>
+          </div>
+          <form id="loginForm" class="form">
+            <label for="lEmail">Email</label>
+            <input id="lEmail" type="email" name="email" autocomplete="username" required>
+            <label for="lPass">Contraseña</label>
+            <input id="lPass" type="password" name="password" autocomplete="current-password" required>
+            <p class="form-error" id="loginErr" hidden></p>
+            <div class="form-actions"><button type="submit" class="primary">Entrar</button></div>
+          </form>
+          <form id="signupForm" class="form" hidden>
+            <label for="sName">Tu nombre</label>
+            <input id="sName" type="text" name="name" autocomplete="name" required>
+            <label for="sEmail">Email</label>
+            <input id="sEmail" type="email" name="email" autocomplete="username" required>
+            <label for="sPass">Contraseña (mínimo 8 caracteres)</label>
+            <input id="sPass" type="password" name="password" autocomplete="new-password" minlength="8" required>
+            <div id="sTeamWrap"><label for="sTeam">Empresa o equipo</label>
+            <input id="sTeam" type="text" name="team" placeholder="Ej.: Solar Constructora"></div>
+            <p class="form-error" id="signupErr" hidden></p>
+            <div class="form-actions"><button type="submit" class="primary">Crear cuenta</button></div>
+          </form>
+        </div>
+        <button type="button" class="link-btn" id="homeLocal">Usar sin cuenta (solo en este teléfono)</button>
+        <p class="hint" id="homeNoServer" hidden>Esta copia de la app no tiene servidor: todo queda guardado en este teléfono.</p>
+      </section>
+
+      <!-- Con sesión -->
+      <section id="homeIn" hidden>
+        <div class="stats" id="homeStats"></div>
+        <div class="home-actions">
+          <button type="button" class="primary" id="homeMap">Ir al mapa</button>
+          <button type="button" class="secondary" id="homeTable">Tabla de puntos</button>
+        </div>
+        <div class="home-sec-head"><h2>Planos</h2><button type="button" class="link-btn" id="homeImport">+ Importar GeoPDF</button></div>
+        <ul class="plan-grid" id="homeMaps"></ul>
+        <div class="home-sec-head"><h2>Últimos puntos</h2></div>
+        <ul class="list" id="homeRecent"></ul>
+      </section>
+    </div>
+  </main>
+
+  <!-- Vista de tabla -->
+  <section class="tview" id="viewTable" hidden aria-label="Tabla de puntos">
+    <header class="tview-head">
+      <button type="button" class="icon" id="tblClose" aria-label="Volver al mapa"><svg><use href="#i-close"/></svg></button>
+      <h2>Tabla de puntos</h2>
+      <span class="tcount" id="tblCount"></span>
+    </header>
+    <div class="tview-tools">
+      <div class="seg small-seg" id="tblScope">
+        <label><input type="radio" name="tblScope" value="map" checked><span id="tblScopeMap">Este plano</span></label>
+        <label><input type="radio" name="tblScope" value="all">Todos los planos</label>
+      </div>
+      <div class="filters" id="tblTypes"></div>
+      <div class="trow">
+        <select id="tblStatus" class="select" aria-label="Estado"><option value="todos">Todos los estados</option><option value="abierto">Abiertos</option><option value="resuelto">Resueltos</option></select>
+        <input id="tblSearch" type="search" class="search" placeholder="Buscar título, nota, responsable…" aria-label="Buscar">
+      </div>
+      <div class="trow">
+        <button type="button" class="secondary" id="tblXlsx">Excel (.xlsx)</button>
+        <button type="button" class="secondary" id="tblCsv">CSV</button>
+        <button type="button" class="secondary" id="tblZip">Excel + fotos (ZIP)</button>
+      </div>
+    </div>
+    <div class="twrap"><table class="ptable"><thead id="tblHead"></thead><tbody id="tblBody"></tbody></table></div>
+  </section>
+
   <!-- Hoja: cuenta y equipo -->
   <section class="sheet tall" id="sheetAccount" role="dialog" aria-label="Cuenta" hidden>
     <div class="sheet-head">
@@ -80,34 +165,6 @@
       <button class="icon" data-close aria-label="Cerrar"><svg><use href="#i-close"/></svg></button>
     </div>
     <p class="hint" id="accNoServer" hidden>Esta copia de la app no tiene servidor: todo queda guardado en este teléfono.</p>
-    <div id="accOut" hidden>
-      <div class="invite-box" id="accInvite" hidden></div>
-      <div class="seg tabs" id="accTabs">
-        <label><input type="radio" name="accTab" value="login" checked>Entrar</label>
-        <label><input type="radio" name="accTab" value="signup">Crear cuenta</label>
-      </div>
-      <form id="loginForm" class="form">
-        <label for="lEmail">Email</label>
-        <input id="lEmail" type="email" name="email" autocomplete="username" required>
-        <label for="lPass">Contraseña</label>
-        <input id="lPass" type="password" name="password" autocomplete="current-password" required>
-        <p class="form-error" id="loginErr" hidden></p>
-        <div class="form-actions"><button type="submit" class="primary">Entrar</button></div>
-      </form>
-      <form id="signupForm" class="form" hidden>
-        <label for="sName">Tu nombre</label>
-        <input id="sName" type="text" name="name" autocomplete="name" required>
-        <label for="sEmail">Email</label>
-        <input id="sEmail" type="email" name="email" autocomplete="username" required>
-        <label for="sPass">Contraseña (mínimo 8 caracteres)</label>
-        <input id="sPass" type="password" name="password" autocomplete="new-password" minlength="8" required>
-        <div id="sTeamWrap"><label for="sTeam">Empresa o equipo</label>
-        <input id="sTeam" type="text" name="team" placeholder="Ej.: Solar Constructora"></div>
-        <p class="form-error" id="signupErr" hidden></p>
-        <div class="form-actions"><button type="submit" class="primary">Crear cuenta</button></div>
-      </form>
-      <p class="hint">Sin cuenta igual puedes usar la app: todo queda en este teléfono. Con cuenta, tu equipo comparte planos, puntos y fotos, y se envían solos cuando hay señal.</p>
-    </div>
     <div id="accIn" hidden>
       <p class="acc-user" id="accUser"></p>
       <label class="small-label" for="accTeam">Equipo</label>
@@ -132,6 +189,7 @@
       <h2>Puntos y recorridos</h2>
       <button class="icon" data-close aria-label="Cerrar"><svg><use href="#i-close"/></svg></button>
     </div>
+    <button type="button" class="primary" id="btnOpenTable">Ver tabla de puntos</button>
     <div class="filters" id="filters"></div>
     <div class="row wrap">
       <button id="btnExportZip" class="secondary">Excel + fotos (ZIP)</button>

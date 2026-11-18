@@ -4,6 +4,7 @@ import { importPdf } from './importer.js';
 import { makeProj, utmFor, distM, lineLengthM, insideOrDistance, fmtDist } from './geo.js';
 import { TYPES, SEVERITIES, STATUSES, normalizePoint, compressPhoto, enqueue, pendingCount, onQueueChange } from './inspect.js';
 import * as cl from './cloud.js';
+import { initTable, openTable, closeTable, refreshTable, pointRows, csvFromRows, xlsxFromRows } from './table.js';
 const { cloud } = cl;
 
 const $ = (s) => document.querySelector(s);
@@ -83,6 +84,7 @@ map.on('dragstart', () => setFollow(false));
 async function loadMaps() {
   state.maps = (await db.all('maps')).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   renderMapList();
+  refreshViews();
 }
 
 async function activateMap(id, fit = true) {
@@ -281,6 +283,7 @@ async function loadPins() {
   for (const p of state.pins) if (visible(p)) addMarker(p);
   renderFilters();
   renderPinList();
+  refreshViews();
 }
 
 function addMarker(p) {
@@ -400,7 +403,7 @@ async function openPointEditor(point, place = null) {
   f.name.value = point?.name || `${TYPES[type].label} ${state.pins.filter((p) => p.type === type).length + 1}`;
   f.assignee.value = point?.assignee || '';
   f.note.value = point?.note || '';
-  f.author.value = point?.author || prefs.get('author', '');
+  f.author.value = point?.author || prefs.get('author', '') || cloud.user?.name || '';
   $('#whereWrap').hidden = !isNew;
   if (isNew) {
     const [lon, lat] = place.coords;
@@ -558,20 +561,16 @@ function setTab(t) {
 $('#accTabs').addEventListener('change', (e) => setTab(e.target.value));
 
 async function openAccount() {
+  if (!cloud.user && cloud.available !== false) return openHome();
   openSheet('#sheetAccount');
   await renderAccount();
 }
 async function renderAccount() {
   const noServer = cloud.available === false;
   $('#accNoServer').hidden = !noServer;
-  $('#accOut').hidden = noServer || !!cloud.user;
   $('#accIn').hidden = noServer || !cloud.user;
   $('#accTitle').textContent = cloud.user ? 'Cuenta y equipo' : 'Cuenta';
-  if (!cloud.user) {
-    $('#sTeamWrap').hidden = !!inviteToken;
-    $('#sTeam').required = !inviteToken;
-    return;
-  }
+  if (!cloud.user) return;
   $('#accUser').innerHTML = `<b>${esc(cloud.user.name)}</b><small>${esc(cloud.user.email)}</small>`;
   $('#accTeam').innerHTML = cloud.teams.map((t) => `<option value="${esc(t.id)}" ${t.id === cloud.teamId ? 'selected' : ''}>${esc(t.name)}${t.role === 'admin' ? ' (admin)' : ''}</option>`).join('');
   $('#accInviteWrap').hidden = cloud.team?.role !== 'admin';
@@ -593,7 +592,7 @@ async function submitAuth(form, errEl, fn) {
     form.reset();
     if (inviteToken) { inviteToken = null; $('#accInvite').hidden = true; }
     toast(`Hola, ${cloud.user.name}. Sincronizando con ${cloud.team?.name || 'tu equipo'}…`);
-    await renderAccount();
+    renderHome();
   } catch (e) {
     errEl.textContent = e.code === 'sin-servidor' ? 'Esta copia de la app no tiene servidor.' : (navigator.onLine ? e.message : 'Sin conexión. Intenta cuando tengas señal.');
     errEl.hidden = false;
@@ -636,8 +635,111 @@ $('#btnLogout').onclick = async () => {
   if (!(await confirmBox('Cerrar sesión', msg, 'Cerrar sesión'))) return;
   await cl.logout();
   await reloadAll();
-  renderAccount();
+  closeSheets();
+  openHome();
 };
+
+// --- vista principal ---
+const homeOpen = () => !$('#viewHome').hidden;
+function openHome() {
+  closeSheets(); closeTable(); stopPlacing();
+  $('#viewHome').hidden = false;
+  renderHome();
+}
+function closeHome() { $('#viewHome').hidden = true; }
+function refreshViews() { if (homeOpen()) renderHome(); refreshTable(); }
+
+let homeThumbs = [];
+function renderHome() {
+  const inSession = !!cloud.user;
+  const noServer = cloud.available === false;
+  $('#homeOut').hidden = inSession;
+  $('#homeIn').hidden = !inSession && !prefs.get('localMode', false);
+  if (!inSession && prefs.get('localMode', false)) $('#homeOut').hidden = false;
+  $('#accOut').hidden = noServer;
+  $('#homeNoServer').hidden = !noServer;
+  $('#homeLocal').textContent = state.maps.length || state.pins.length ? 'Seguir sin cuenta (solo en este teléfono)' : 'Usar sin cuenta (solo en este teléfono)';
+  $('#sTeamWrap').hidden = !!inviteToken;
+  $('#sTeam').required = !inviteToken;
+  const acc = $('#homeAccount');
+  acc.hidden = !inSession;
+  if (inSession) acc.textContent = `${cloud.user.name.split(' ')[0]} · ${cloud.team?.name || 'Sin equipo'}`;
+  $('#homeSub').textContent = inSession ? (cloud.team ? `Equipo ${cloud.team.name}` : 'Sin equipo') : 'Planos georreferenciados para inspección en terreno';
+  if ($('#homeIn').hidden) return;
+
+  // Resumen
+  const open = state.pins.filter((p) => p.status !== 'resuelto');
+  const high = open.filter((p) => p.type === 'defecto' && p.severity === 'alta');
+  const done = state.pins.length - open.length;
+  pendingCount().then((n) => {
+    $('#homeStats').innerHTML = `
+      <button type="button" class="stat" data-f="abierto"><b>${open.length}</b><span>Puntos abiertos</span></button>
+      <button type="button" class="stat warn" data-f="alta"><b>${high.length}</b><span>Defectos severidad alta</span></button>
+      <button type="button" class="stat ok" data-f="resuelto"><b>${done}</b><span>Resueltos</span></button>
+      <button type="button" class="stat sync" data-f="sync"><b>${n}</b><span>${n ? 'Por enviar' : 'Todo enviado'}</span></button>`;
+    $('#homeStats').querySelectorAll('.stat').forEach((b) => (b.onclick = () => {
+      if (b.dataset.f === 'sync') return openAccount();
+      closeHome(); openTable();
+    }));
+  });
+
+  // Planos
+  homeThumbs.forEach((u) => URL.revokeObjectURL(u)); homeThumbs = [];
+  const ul = $('#homeMaps');
+  if (!state.maps.length) {
+    ul.innerHTML = '<li class="empty">Aún no hay planos. Importa un GeoPDF para empezar.</li>';
+  } else {
+    ul.innerHTML = '';
+    for (const m of state.maps) {
+      const n = state.pins.filter((p) => p.mapId === m.id).length;
+      const nOpen = state.pins.filter((p) => p.mapId === m.id && p.status !== 'resuelto').length;
+      const u = URL.createObjectURL(m.thumb); homeThumbs.push(u);
+      const li = document.createElement('li');
+      li.innerHTML = `<button type="button"><img alt="" src="${u}"><div class="pm"><b>${esc(m.name)}</b><small>${n} punto${n === 1 ? '' : 's'}${nOpen ? ` · ${nOpen} abierto${nOpen === 1 ? '' : 's'}` : ''}</small></div></button>`;
+      li.querySelector('button').onclick = async () => { closeHome(); await activateMap(m.id); };
+      ul.appendChild(li);
+    }
+  }
+
+  // Últimos puntos
+  const rec = state.pins.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5);
+  const rl = $('#homeRecent');
+  rl.innerHTML = rec.length ? '' : '<li class="empty">Sin puntos todavía.</li>';
+  for (const p of rec) {
+    const t = TYPES[p.type] || TYPES.nota;
+    const li = document.createElement('li');
+    const sev = t.severity ? `<span class="tag ${p.severity}">${SEVERITIES[p.severity]}</span>` : '';
+    const st = p.status === 'resuelto' ? '<span class="tag ok">Resuelto</span>' : '';
+    li.innerHTML = `<span class="dot" style="background:${p.status === 'resuelto' ? '#1f7a52' : t.color}"></span>
+      <div class="meta"><b>${esc(p.name)}</b><small>${sev}${st}${esc(p.category || t.label)}${p.mapName ? ' · ' + esc(p.mapName) : ''}</small></div>
+      <div class="acts"><button data-go>Ver</button></div>`;
+    li.querySelector('[data-go]').onclick = () => goToPoint(p);
+    rl.appendChild(li);
+  }
+}
+
+async function goToPoint(p) {
+  closeHome(); closeSheets();
+  if (p.mapId && state.active?.id !== p.mapId && state.maps.some((m) => m.id === p.mapId)) await activateMap(p.mapId, false);
+  setFollow(false);
+  map.flyTo({ center: p.coords, zoom: Math.max(map.getZoom(), 17) });
+  setTimeout(() => state.markers.get(p.id)?.togglePopup(), 900);
+}
+
+$('#btnHome').onclick = openHome;
+$('#homeAccount').onclick = () => openAccount();
+$('#homeMap').onclick = () => { closeHome(); if (!state.maps.length) openSheet('#sheetMaps'); };
+$('#homeTable').onclick = () => { closeHome(); openTable(); };
+$('#homeImport').onclick = () => $('#file').click();
+$('#homeLocal').onclick = () => { prefs.set('localMode', true); closeHome(); if (!state.maps.length) openSheet('#sheetMaps'); };
+$('#btnOpenTable').onclick = () => { closeSheets(); openTable(); };
+
+initTable({
+  state, enFor, esc, toast, download, exportZip, stamp: () => stamp(),
+  goTo: (p) => goToPoint(p),
+  edit: (p) => openPointEditor(p),
+  onOpen: () => { closeSheets(); stopPlacing(); },
+});
 
 async function reloadAll() {
   const active = state.active?.id;
@@ -723,8 +825,20 @@ function renderTrackList() {
 }
 
 // ---------- exportar ----------
+const projCache = new Map();
+function projForMap(mapId) {
+  if (!mapId) return null;
+  if (!projCache.has(mapId)) {
+    const m = state.maps.find((x) => x.id === mapId);
+    let pr = null;
+    try { pr = m ? makeProj(m.epsg, m.wkt) : null; } catch {}
+    if (!m) return null; // aún no llega el plano: no se guarda en caché
+    projCache.set(mapId, pr);
+  }
+  return projCache.get(mapId);
+}
 function enFor(p) {
-  const pr = state.proj || utmFor(p.coords[0], p.coords[1]);
+  const pr = projForMap(p.mapId) || (state.active?.id === p.mapId ? state.proj : null) || utmFor(p.coords[0], p.coords[1]);
   if (!pr) return ['', '', ''];
   const [e, n] = pr.fwd(p.coords);
   return [e.toFixed(2), n.toFixed(2), pr.label];
@@ -739,20 +853,20 @@ function pointProps(p) {
   };
 }
 
-function exportGeoJSON() {
+function exportGeoJSON(list = state.pins) {
   const feats = [
-    ...state.pins.map((p) => ({ type: 'Feature', properties: pointProps(p), geometry: { type: 'Point', coordinates: p.coords } })),
+    ...list.map((p) => ({ type: 'Feature', properties: pointProps(p), geometry: { type: 'Point', coordinates: p.coords } })),
     ...state.tracks.map((t) => ({ type: 'Feature', properties: { tipo: 'Recorrido', titulo: t.name, largo_m: Math.round(t.lengthM), creado: t.createdAt }, geometry: { type: 'LineString', coordinates: t.coords } })),
   ];
   return JSON.stringify(fc(feats), null, 2);
 }
 
 function kmlColor(hex) { const h = hex.replace('#', ''); return `ff${h.slice(4, 6)}${h.slice(2, 4)}${h.slice(0, 2)}`; }
-function exportKML() {
+function exportKML(list = state.pins) {
   const x = (s) => esc(s);
   const styles = Object.entries(TYPES).map(([k, t]) => `<Style id="${k}"><IconStyle><color>${kmlColor(t.color)}</color></IconStyle></Style>`).join('') +
     '<Style id="resuelto"><IconStyle><color>ff527a1f</color></IconStyle></Style>';
-  const pins = state.pins.map((p) => {
+  const pins = list.map((p) => {
     const pr = pointProps(p);
     const data = Object.entries(pr).map(([k, v]) => `<Data name="${k}"><value>${x(v)}</value></Data>`).join('');
     return `<Placemark><name>${x(p.name)}</name><styleUrl>#${p.status === 'resuelto' ? 'resuelto' : p.type}</styleUrl><description>${x([pr.tipo, pr.categoria, pr.severidad, pr.estado, p.note].filter(Boolean).join(' · '))}</description><ExtendedData>${data}</ExtendedData><Point><coordinates>${p.coords[0]},${p.coords[1]}</coordinates></Point></Placemark>`;
@@ -761,28 +875,22 @@ function exportKML() {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>GeoSpots</name>${styles}${pins.join('')}${tr.join('')}</Document></kml>`;
 }
 
-function exportCSV() {
-  const cols = ['id', 'tipo', 'categoria', 'titulo', 'severidad', 'estado', 'responsable', 'nota', 'latitud', 'longitud', 'este', 'norte', 'sistema', 'precision_gps_m', 'fotos', 'archivos_fotos', 'plano', 'autor', 'creado', 'actualizado'];
-  const q = (v) => { const s = String(v ?? ''); return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const rows = state.pins.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((p) => {
-    const pr = pointProps(p);
-    const [e, n, sys] = enFor(p);
-    const files = p.photoIds.map((_, i) => `fotos/${p.id}-${i + 1}.jpg`).join(' ');
-    return { ...pr, latitud: p.coords[1].toFixed(7), longitud: p.coords[0].toFixed(7), este: e, norte: n, sistema: sys, archivos_fotos: files };
-  });
-  // ; como separador y BOM para que Excel en español lo abra bien
-  return '﻿' + [cols.join(';'), ...rows.map((r) => cols.map((c) => q(r[c])).join(';'))].join('\r\n');
+function exportCSV(pins = state.pins) {
+  return csvFromRows(pointRows(pins.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt))));
 }
 
-async function exportZip() {
-  if (!state.pins.length) { toast('No hay puntos para exportar'); return; }
+async function exportZip(pins = state.pins) {
+  if (!pins.length) { toast('No hay puntos para exportar'); return; }
   busy('Armando ZIP con fotos…');
   try {
+    pins = pins.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const zip = new JSZip();
-    zip.file('puntos.csv', exportCSV());
-    zip.file('puntos.kml', exportKML());
-    zip.file('puntos.geojson', exportGeoJSON());
-    for (const p of state.pins) {
+    const rows = pointRows(pins).map((r) => ({ ...r, nota: r.nota, fotos: r.fotos }));
+    zip.file('puntos.xlsx', await xlsxFromRows(rows));
+    zip.file('puntos.csv', csvFromRows(rows));
+    zip.file('puntos.kml', exportKML(pins));
+    zip.file('puntos.geojson', exportGeoJSON(pins));
+    for (const p of pins) {
       const photos = await db.byIndex('photos', 'pointId', p.id);
       const order = new Map(p.photoIds.map((id, i) => [id, i]));
       photos.sort((a, b) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99))
@@ -883,14 +991,16 @@ function toast(msg, ms = 3000) {
         $('#accInvite').innerHTML = `Te invitaron a <b>${esc(inv.team)}</b>. Crea tu cuenta o entra para unirte.`;
         $('#accInvite').hidden = false;
         setTab('signup');
-        await openAccount();
+        openHome();
         return;
       }
     } catch (e) { inviteToken = null; toast(e.message, 6000); }
   }
   updateSyncBadge();
   if (cloud.user) cl.sync();
-  if (!state.maps.length && !cloud.user) openSheet('#sheetMaps');
+  // Vista principal al abrir la app (salvo quien eligió usarla sin cuenta y ya tiene planos)
+  if (!imp && (cloud.user || !prefs.get('localMode', false) || !state.maps.length)) openHome();
+  else if (!state.maps.length) openSheet('#sheetMaps');
 })();
 
 
@@ -899,4 +1009,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 
 // para depurar
-window.__geoplano = { state, map, exportCSV, exportKML, cloud: cl };
+window.__geoplano = { state, map, exportCSV, exportKML, cloud: cl, openHome, closeHome, openTable };
