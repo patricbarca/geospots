@@ -62,10 +62,7 @@ const listeners = new Set();
 export function onQueueChange(fn) { listeners.add(fn); }
 async function notify() { const n = await pendingCount(); listeners.forEach((f) => f(n)); }
 
-/**
- * Servidor de sincronización. Por ahora no hay ninguno configurado: todo queda en el teléfono.
- * Cuando se conecte Supabase, aquí van upsert/delete de puntos, recorridos y la subida de fotos.
- */
+/** Servidor de sincronización: lo configura cloud.js al iniciar sesión (sin cuenta, todo queda en el teléfono). */
 let adapter = null;
 export function setSyncAdapter(a) { adapter = a; }
 
@@ -75,7 +72,7 @@ export async function syncNow() {
   if (!adapter) return { ok: false, reason: 'sin-servidor' };
   if (syncing) return { ok: false, reason: 'en-curso' };
   syncing = true;
-  let sent = 0;
+  let sent = 0, dropped = 0, error = null;
   try {
     const items = (await db.all('outbox')).sort((a, b) => a.at.localeCompare(b.at));
     for (const it of items) {
@@ -86,13 +83,16 @@ export async function syncNow() {
         if (rec) await db.put(it.store, { ...rec, syncedAt: new Date().toISOString() });
         sent++;
       } catch (e) {
-        await db.put('outbox', { ...it, tries: it.tries + 1, error: String(e.message || e) });
+        error = String(e.message || e);
+        // El servidor lo rechazó (permiso, datos inválidos): se descarta para no trabar la cola.
+        if (e.status >= 400 && e.status < 500 && ![401, 408, 429].includes(e.status)) {
+          await db.del('outbox', it.id); dropped++; continue;
+        }
+        await db.put('outbox', { ...it, tries: it.tries + 1, error });
         break; // se reintenta la próxima vez, en el mismo orden
       }
     }
   } finally { syncing = false; notify(); }
-  return { ok: true, sent };
+  return { ok: !error || dropped > 0, sent, dropped, error };
 }
 
-window.addEventListener('online', () => syncNow());
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow(); });

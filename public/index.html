@@ -69,8 +69,61 @@
       <button class="icon" data-close aria-label="Cerrar"><svg><use href="#i-close"/></svg></button>
     </div>
     <button id="btnImport" class="primary">Importar GeoPDF</button>
-    <p class="hint">El PDF se procesa en tu teléfono. No se sube a ningún servidor.</p>
+    <p class="hint" id="importHint">El PDF se procesa en tu teléfono. Con cuenta, el plano ya procesado se comparte con tu equipo.</p>
     <ul id="mapList" class="list"></ul>
+  </section>
+
+  <!-- Hoja: cuenta y equipo -->
+  <section class="sheet tall" id="sheetAccount" role="dialog" aria-label="Cuenta" hidden>
+    <div class="sheet-head">
+      <h2 id="accTitle">Cuenta</h2>
+      <button class="icon" data-close aria-label="Cerrar"><svg><use href="#i-close"/></svg></button>
+    </div>
+    <p class="hint" id="accNoServer" hidden>Esta copia de la app no tiene servidor: todo queda guardado en este teléfono.</p>
+    <div id="accOut" hidden>
+      <div class="invite-box" id="accInvite" hidden></div>
+      <div class="seg tabs" id="accTabs">
+        <label><input type="radio" name="accTab" value="login" checked>Entrar</label>
+        <label><input type="radio" name="accTab" value="signup">Crear cuenta</label>
+      </div>
+      <form id="loginForm" class="form">
+        <label for="lEmail">Email</label>
+        <input id="lEmail" type="email" name="email" autocomplete="username" required>
+        <label for="lPass">Contraseña</label>
+        <input id="lPass" type="password" name="password" autocomplete="current-password" required>
+        <p class="form-error" id="loginErr" hidden></p>
+        <div class="form-actions"><button type="submit" class="primary">Entrar</button></div>
+      </form>
+      <form id="signupForm" class="form" hidden>
+        <label for="sName">Tu nombre</label>
+        <input id="sName" type="text" name="name" autocomplete="name" required>
+        <label for="sEmail">Email</label>
+        <input id="sEmail" type="email" name="email" autocomplete="username" required>
+        <label for="sPass">Contraseña (mínimo 8 caracteres)</label>
+        <input id="sPass" type="password" name="password" autocomplete="new-password" minlength="8" required>
+        <div id="sTeamWrap"><label for="sTeam">Empresa o equipo</label>
+        <input id="sTeam" type="text" name="team" placeholder="Ej.: Solar Constructora"></div>
+        <p class="form-error" id="signupErr" hidden></p>
+        <div class="form-actions"><button type="submit" class="primary">Crear cuenta</button></div>
+      </form>
+      <p class="hint">Sin cuenta igual puedes usar la app: todo queda en este teléfono. Con cuenta, tu equipo comparte planos, puntos y fotos, y se envían solos cuando hay señal.</p>
+    </div>
+    <div id="accIn" hidden>
+      <p class="acc-user" id="accUser"></p>
+      <label class="small-label" for="accTeam">Equipo</label>
+      <select id="accTeam" class="select"></select>
+      <p class="hint" id="accSyncInfo"></p>
+      <button type="button" class="primary" id="btnSyncNow">Sincronizar ahora</button>
+      <h3>Miembros</h3>
+      <ul class="list compact" id="accMembers"></ul>
+      <div id="accInviteWrap" hidden>
+        <button type="button" class="secondary wide" id="btnInvite">Invitar a alguien</button>
+        <div class="invite-box" id="inviteOut" hidden></div>
+      </div>
+      <h3>Espacio usado</h3>
+      <p class="hint" id="accUsage">—</p>
+      <button type="button" class="danger wide" id="btnLogout">Cerrar sesión</button>
+    </div>
   </section>
 
   <!-- Hoja: datos -->

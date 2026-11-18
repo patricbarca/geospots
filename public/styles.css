@@ -162,3 +162,20 @@ body.placing #crosshair { display: block !important; opacity: 1; }
 body.placing .fabs, body.placing .readout { opacity: .35; pointer-events: none; }
 .pick-marker { width: 26px; height: 34px; animation: bob 1s ease-in-out infinite alternate; }
 @keyframes bob { to { transform: translateY(-4px); } }
+
+/* Cuenta */
+.form input[type=email], .form input[type=password] { width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: #0b1118; color: var(--text); font: inherit; }
+.form-error { color: #ff8a80; font-size: 13px; margin: 10px 0 0; }
+.seg.tabs { margin-bottom: 4px; }
+.invite-box { padding: 12px; border-radius: 12px; background: rgba(242,169,59,.12); border: 1px solid rgba(242,169,59,.4); margin: 6px 0 12px; font-size: 14px; overflow-wrap: anywhere; }
+.invite-box .row { display: flex; gap: 8px; margin-top: 10px; }
+.invite-box button { flex: 1; padding: 9px; border-radius: 10px; background: #24384a; color: var(--text); font-weight: 600; }
+.acc-user { margin: 0 0 12px; }
+.acc-user small { color: var(--muted); display: block; }
+.small-label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 5px; }
+.select { width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: #0b1118; color: var(--text); font: inherit; }
+.list.compact li { padding: 7px 4px; font-size: 14px; }
+.list.compact small { color: var(--muted); margin-left: auto; }
+.wide { width: 100%; margin-top: 10px; padding: 11px; border-radius: 12px; font-weight: 600; }
+.secondary.wide { background: #24384a; color: var(--text); }
+.danger.wide { margin-top: 22px; }

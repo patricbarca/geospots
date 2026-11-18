@@ -1,0 +1,13 @@
+{
+  "name": "geospots",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler d1 migrations apply geospots --local && wrangler dev",
+    "deploy": "wrangler d1 migrations apply geospots --remote && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.164.0"
+  }
+}

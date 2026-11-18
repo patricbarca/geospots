@@ -2,7 +2,9 @@
 import { db, uid } from './db.js';
 import { importPdf } from './importer.js';
 import { makeProj, utmFor, distM, lineLengthM, insideOrDistance, fmtDist } from './geo.js';
-import { TYPES, SEVERITIES, STATUSES, normalizePoint, compressPhoto, enqueue, pendingCount, onQueueChange, syncNow } from './inspect.js';
+import { TYPES, SEVERITIES, STATUSES, normalizePoint, compressPhoto, enqueue, pendingCount, onQueueChange } from './inspect.js';
+import * as cl from './cloud.js';
+const { cloud } = cl;
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -132,8 +134,13 @@ function renderMapList() {
     li.querySelector('img').onload = () => URL.revokeObjectURL(thumb);
     li.querySelector('[data-open]').onclick = () => { activateMap(m.id); closeSheets(); };
     li.querySelector('[data-del]').onclick = async () => {
-      if (!(await confirmBox('Borrar plano', `¿Borrar "${m.name}" de este teléfono?`, 'Borrar'))) return;
+      const shared = cloud.user && m.syncedAt;
+      const canTeam = shared && (cloud.team?.role === 'admin' || m.createdBy === cloud.user.id);
+      const msg = !shared ? `¿Borrar "${m.name}" de este teléfono?`
+        : canTeam ? `¿Borrar "${m.name}" para todo el equipo?` : `Solo quien lo subió o un administrador puede borrarlo del equipo. ¿Quitar "${m.name}" solo de este teléfono?`;
+      if (!(await confirmBox('Borrar plano', msg, 'Borrar'))) return;
       await db.del('maps', m.id);
+      if (!shared || canTeam) await enqueue('maps', m.id, 'delete');
       if (state.active?.id === m.id) await activateMap(null, false);
       await loadMaps();
     };
@@ -148,6 +155,7 @@ async function handleFiles(files) {
       busy(`Leyendo ${f.name}…`);
       const saved = await importPdf(await f.arrayBuffer(), f.name, busy);
       last = saved[saved.length - 1];
+      for (const m of saved) await enqueue('maps', m.id);
       toast(`Plano importado: ${saved.map((s) => s.name).join(', ')}`);
     } catch (e) {
       console.error(e);
@@ -534,15 +542,118 @@ async function updateSyncBadge(n) {
   if (n == null) n = await pendingCount();
   const b = $('#btnSync');
   b.classList.toggle('pending', n > 0);
-  $('#syncText').textContent = n > 0 ? `⏳ ${n} pendiente${n === 1 ? '' : 's'}` : '✓ Al día';
+  if (!cloud.user) $('#syncText').textContent = n > 0 ? `⏳ ${n} sin cuenta` : (cloud.available === false ? '📱 Local' : '☁ Entrar');
+  else $('#syncText').textContent = n > 0 ? `⏳ ${n} pendiente${n === 1 ? '' : 's'}` : '✓ Al día';
 }
 onQueueChange(updateSyncBadge);
-$('#btnSync').onclick = async () => {
-  const r = await syncNow();
-  if (r.reason === 'offline') toast('Sin conexión. Todo queda guardado en el teléfono y se enviará al volver la señal.', 5000);
-  else if (r.reason === 'sin-servidor') toast('Versión de prueba: los datos quedan guardados en este teléfono. El envío al servidor se conecta en el siguiente paso.', 6000);
-  else if (r.ok) toast(r.sent ? `Enviados ${r.sent}` : 'Todo al día');
+$('#btnSync').onclick = () => openAccount();
+
+// --- cuenta y equipo ---
+let inviteToken = null;
+function setTab(t) {
+  $('#loginForm').hidden = t !== 'login';
+  $('#signupForm').hidden = t !== 'signup';
+  $(`#accTabs input[value=${t}]`).checked = true;
+}
+$('#accTabs').addEventListener('change', (e) => setTab(e.target.value));
+
+async function openAccount() {
+  openSheet('#sheetAccount');
+  await renderAccount();
+}
+async function renderAccount() {
+  const noServer = cloud.available === false;
+  $('#accNoServer').hidden = !noServer;
+  $('#accOut').hidden = noServer || !!cloud.user;
+  $('#accIn').hidden = noServer || !cloud.user;
+  $('#accTitle').textContent = cloud.user ? 'Cuenta y equipo' : 'Cuenta';
+  if (!cloud.user) {
+    $('#sTeamWrap').hidden = !!inviteToken;
+    $('#sTeam').required = !inviteToken;
+    return;
+  }
+  $('#accUser').innerHTML = `<b>${esc(cloud.user.name)}</b><small>${esc(cloud.user.email)}</small>`;
+  $('#accTeam').innerHTML = cloud.teams.map((t) => `<option value="${esc(t.id)}" ${t.id === cloud.teamId ? 'selected' : ''}>${esc(t.name)}${t.role === 'admin' ? ' (admin)' : ''}</option>`).join('');
+  $('#accInviteWrap').hidden = cloud.team?.role !== 'admin';
+  const n = await pendingCount();
+  $('#accSyncInfo').textContent = `${n ? `${n} cambio${n === 1 ? '' : 's'} por enviar. ` : 'Todo enviado. '}${cloud.lastSync ? 'Última sincronización: ' + new Date(cloud.lastSync).toLocaleString('es-CL') : ''}`;
+  if (!navigator.onLine) { $('#accMembers').innerHTML = '<li class="empty">Sin conexión</li>'; return; }
+  try {
+    const [{ members }, u] = await Promise.all([cl.members(), cl.usage()]);
+    $('#accMembers').innerHTML = members.map((m) => `<li><span>${esc(m.name)}</span><small>${m.role === 'admin' ? 'admin' : 'miembro'}</small></li>`).join('');
+    $('#accUsage').textContent = `${(u.bytes / 1048576).toFixed(1)} MB en ${u.files} archivo${u.files === 1 ? '' : 's'} · ${u.records.map || 0} planos · ${u.records.pin || 0} puntos · ${u.records.track || 0} recorridos`;
+  } catch (e) { $('#accMembers').innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
+}
+
+async function submitAuth(form, errEl, fn) {
+  const btn = form.querySelector('button[type=submit]');
+  errEl.hidden = true; btn.disabled = true;
+  try {
+    await fn(Object.fromEntries(new FormData(form)));
+    form.reset();
+    if (inviteToken) { inviteToken = null; $('#accInvite').hidden = true; }
+    toast(`Hola, ${cloud.user.name}. Sincronizando con ${cloud.team?.name || 'tu equipo'}…`);
+    await renderAccount();
+  } catch (e) {
+    errEl.textContent = e.code === 'sin-servidor' ? 'Esta copia de la app no tiene servidor.' : (navigator.onLine ? e.message : 'Sin conexión. Intenta cuando tengas señal.');
+    errEl.hidden = false;
+  } finally { btn.disabled = false; }
+}
+$('#loginForm').onsubmit = (e) => { e.preventDefault(); submitAuth(e.target, $('#loginErr'), (v) => cl.login({ ...v, invite: inviteToken })); };
+$('#signupForm').onsubmit = (e) => { e.preventDefault(); submitAuth(e.target, $('#signupErr'), (v) => cl.signup({ ...v, invite: inviteToken })); };
+
+$('#btnSyncNow').onclick = async () => {
+  const b = $('#btnSyncNow'); b.disabled = true; b.textContent = 'Sincronizando…';
+  try {
+    const r = await cl.sync();
+    if (r.reason === 'offline') toast('Sin conexión. Todo queda guardado y se enviará al volver la señal.', 5000);
+    else if (r.reason === 'error' || r.error) toast('No se pudo sincronizar: ' + (r.error || ''), 6000);
+    else toast(r.sent || r.received ? `Listo: ${r.sent} enviado${r.sent === 1 ? '' : 's'}${r.received ? ', cambios recibidos' : ''}` : 'Todo al día');
+  } finally { b.disabled = false; b.textContent = 'Sincronizar ahora'; renderAccount(); }
 };
+$('#accTeam').onchange = async (e) => {
+  const id = e.target.value;
+  if (await pendingCount()) { toast('Primero sincroniza los cambios pendientes.'); e.target.value = cloud.teamId; return; }
+  if (!(await confirmBox('Cambiar de equipo', 'Este teléfono mostrará los planos y puntos del otro equipo. Lo de este equipo queda guardado en el servidor.', 'Cambiar'))) { e.target.value = cloud.teamId; return; }
+  busy('Cargando equipo…');
+  try { await cl.switchTeam(id); } finally { busy(null); }
+  await reloadAll(); renderAccount();
+};
+$('#btnInvite').onclick = async () => {
+  try {
+    const r = await cl.createInvite('miembro');
+    const box = $('#inviteOut');
+    box.hidden = false;
+    box.innerHTML = `Comparte este link (vale 14 días):<br><b>${esc(r.url)}</b><div class="row"><button type="button" data-copy>Copiar</button>${navigator.share ? '<button type="button" data-share>Compartir</button>' : ''}</div>`;
+    box.querySelector('[data-copy]').onclick = async () => { try { await navigator.clipboard.writeText(r.url); toast('Link copiado'); } catch { toast('No se pudo copiar'); } };
+    const sh = box.querySelector('[data-share]');
+    if (sh) sh.onclick = () => navigator.share({ title: 'GeoSpots', text: `Te invito a ${cloud.team?.name} en GeoSpots`, url: r.url }).catch(() => {});
+  } catch (e) { toast(e.message); }
+};
+$('#btnLogout').onclick = async () => {
+  const n = await pendingCount();
+  const msg = n ? `Hay ${n} cambio${n === 1 ? '' : 's'} sin enviar que se perderán. ¿Cerrar sesión igual?` : 'Se borrarán de este teléfono los planos y puntos del equipo (siguen en el servidor).';
+  if (!(await confirmBox('Cerrar sesión', msg, 'Cerrar sesión'))) return;
+  await cl.logout();
+  await reloadAll();
+  renderAccount();
+};
+
+async function reloadAll() {
+  const active = state.active?.id;
+  await Promise.all([loadMaps(), loadPins(), loadTracks()]);
+  if (active && !state.maps.some((m) => m.id === active)) await activateMap(null, false);
+  else if (!active && state.maps.length) {
+    const last = prefs.get('activeMap', null);
+    await activateMap(state.maps.some((m) => m.id === last) ? last : state.maps[0].id);
+  }
+  updateSyncBadge();
+}
+cl.onCloudChange((what) => {
+  if (what === 'data') reloadAll();
+  else updateSyncBadge();
+  if (what === 'session') toast('Tu sesión venció. Entra de nuevo para seguir enviando.', 5000);
+});
 
 // ---------- recorridos ----------
 async function loadTracks() {
@@ -756,12 +867,36 @@ function toast(msg, ms = 3000) {
       await handleFiles([new File([blob], decodeURIComponent(imp.split('/').pop()), { type: 'application/pdf' })]);
     } finally { busy(null); history.replaceState(null, '', location.pathname); }
   }
-  if (!state.maps.length) openSheet('#sheetMaps');
+  // Cuenta: invitación por link, sesión y primera sincronización
+  inviteToken = new URLSearchParams(location.search).get('invite');
+  await cl.refreshMe();
+  if (inviteToken) {
+    history.replaceState(null, '', location.pathname);
+    try {
+      const inv = await cl.inviteInfo(inviteToken);
+      if (cloud.user) {
+        const teamId = await cl.acceptInvite(inviteToken);
+        inviteToken = null;
+        toast(`Te uniste a ${inv.team}`);
+        if (teamId !== cloud.teamId && !(await pendingCount())) { await cl.switchTeam(teamId); await reloadAll(); }
+      } else {
+        $('#accInvite').innerHTML = `Te invitaron a <b>${esc(inv.team)}</b>. Crea tu cuenta o entra para unirte.`;
+        $('#accInvite').hidden = false;
+        setTab('signup');
+        await openAccount();
+        return;
+      }
+    } catch (e) { inviteToken = null; toast(e.message, 6000); }
+  }
+  updateSyncBadge();
+  if (cloud.user) cl.sync();
+  if (!state.maps.length && !cloud.user) openSheet('#sheetMaps');
 })();
+
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW', e));
 }
 
 // para depurar
-window.__geoplano = { state, map, exportCSV, exportKML };
+window.__geoplano = { state, map, exportCSV, exportKML, cloud: cl };
