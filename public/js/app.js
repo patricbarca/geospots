@@ -662,7 +662,11 @@ let signupCode = new URLSearchParams(location.search).get('alta');
 const adminSignup = !!signupCode;
 if (signupCode) history.replaceState(null, '', location.pathname);
 cl.getConfig().then((c) => { serverConfig = c; if (homeOpen()) renderHome(); });
+let resetToken = new URLSearchParams(location.search).get('reset');
+if (resetToken) history.replaceState(null, '', location.pathname);
 function renderHome() {
+  $('#homeReset').hidden = !resetToken;
+  if (resetToken) { $('#homeOut').hidden = true; $('#homeIn').hidden = true; $('#homeAccount').hidden = true; return; }
   const inSession = !!cloud.user;
   const noServer = cloud.available === false;
   $('#homeOut').hidden = inSession;
@@ -743,6 +747,20 @@ async function goToPoint(p) {
 }
 
 $('#btnHome').onclick = openHome;
+$('#resetForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target, err = $('#resetErr'), btn = f.querySelector('button[type=submit]');
+  err.hidden = true;
+  if (f.password.value !== f.password2.value) { err.textContent = 'Las dos contraseñas no son iguales.'; err.hidden = false; return; }
+  btn.disabled = true;
+  try {
+    await cl.resetPassword(resetToken, f.password.value);
+    resetToken = null; f.reset();
+    toast(`Listo, ${cloud.user.name}. Tu contraseña quedó cambiada.`);
+    renderHome();
+  } catch (e2) { err.textContent = navigator.onLine ? e2.message : 'Sin conexión. Intenta cuando tengas señal.'; err.hidden = false; }
+  finally { btn.disabled = false; }
+};
 $('#homeAccount').onclick = () => openAccount();
 $('#homeMap').onclick = () => { closeHome(); if (!state.maps.length) openSheet('#sheetMaps'); };
 $('#homeTable').onclick = () => { closeHome(); openTable(); };
@@ -995,6 +1013,12 @@ function toast(msg, ms = 3000) {
   // Cuenta: invitación por link, sesión y primera sincronización
   inviteToken = new URLSearchParams(location.search).get('invite');
   if (adminSignup && !cloud.user) setTab('signup');
+  if (resetToken) {
+    try { const r = await cl.resetInfo(resetToken); $('#resetWho').textContent = `Cuenta de ${r.name} (${r.email}).`; }
+    catch (e) { resetToken = null; toast(e.message, 7000); }
+    openHome();
+    if (resetToken) return;
+  }
   await cl.refreshMe();
   if (inviteToken) {
     history.replaceState(null, '', location.pathname);

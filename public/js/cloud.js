@@ -68,6 +68,11 @@ export async function signup({ name, email, password, team, invite, signupCode }
   const res = await call('/auth/signup', { method: 'POST', json: { name, email, password, team, invite, signupCode } });
   await adoptAccount(res);
 }
+export const resetInfo = (token) => call(`/auth/reset/${encodeURIComponent(token)}`);
+export async function resetPassword(token, password) {
+  const res = await call('/auth/reset', { method: 'POST', json: { token, password } });
+  await adoptAccount(res);
+}
 export async function login({ email, password, invite }) {
   const res = await call('/auth/login', { method: 'POST', json: { email, password, invite } });
   await adoptAccount(res);

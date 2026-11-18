@@ -230,6 +230,32 @@ async function api(req, env, ctx, url) {
     return json({ user: { id: u.id, email: u.email, name: u.name }, teams: await teamsOf(env, u.id) }, 200, { 'Set-Cookie': sessionCookie(token) });
   }
 
+  // Contraseña nueva con un link de un solo uso (?reset=<token>)
+  if (parts[0] === 'auth' && parts[1] === 'reset') {
+    await enforceRate(env, 'reset-ip:' + clientIp(req), 20, 15 * 60000);
+    const rb = method === 'POST' ? await body(req) : {};
+    const token = method === 'GET' ? parts[2] : rb.token;
+    if (typeof token !== 'string' || token.length < 20 || token.length > 100) throw new HttpError(400, 'Link inválido.', 'reset');
+    const th = await sha256(token), now = Date.now();
+    const row = await env.DB.prepare(`SELECT r.user_id, u.name, u.email FROM password_resets r JOIN users u ON u.id = r.user_id
+      WHERE r.token_hash = ? AND r.used_at IS NULL AND r.expires_at > ?`).bind(th, now).first();
+    if (!row) throw new HttpError(400, 'Este link para cambiar la contraseña venció o ya se usó. Pide uno nuevo.', 'reset');
+    if (method === 'GET') return json({ name: row.name, email: row.email });
+    if (method === 'POST') {
+      const b = rb;
+      const bad = checkPassword(b.password, row.email); if (bad) throw new HttpError(400, bad, 'password');
+      const salt = randomBytes(16);
+      const hash = await pbkdf2(b.password, salt, PBKDF2_ITER);
+      await env.DB.batch([
+        env.DB.prepare('UPDATE users SET pw_hash = ?, pw_salt = ?, pw_iter = ? WHERE id = ?').bind(hash, b64url(salt), PBKDF2_ITER, row.user_id),
+        env.DB.prepare('UPDATE password_resets SET used_at = ? WHERE token_hash = ?').bind(now, th),
+        env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(row.user_id), // se cierran las sesiones abiertas en otros teléfonos
+      ]);
+      const tok = await createSession(env, row.user_id);
+      return json({ user: { id: row.user_id, email: row.email, name: row.name }, teams: await teamsOf(env, row.user_id) }, 200, { 'Set-Cookie': sessionCookie(tok) });
+    }
+  }
+
   if (path === '/api/auth/logout' && method === 'POST') {
     const u = await getUser(req, env);
     if (u) await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(u.tokenHash).run();

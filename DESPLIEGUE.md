@@ -15,6 +15,13 @@ Primer despliegue: 18-nov-2026. Después se borraron las cuentas de prueba (@eje
 - En local, `.dev.vars` (fuera de git) define `SIGNUP_CODE`.
 - Un administrador puede quitar miembros. Si la persona queda sin equipo, sus sesiones se cierran.
 
+## Contraseña olvidada
+No hay envío de correos todavía. Para generar un link de un solo uso que dura 24 h:
+```bash
+node scripts/reset-link.mjs --email persona@empresa.com
+```
+La persona abre el link, pone una contraseña nueva y entra. Sus sesiones abiertas en otros teléfonos se cierran.
+
 ## Para volver a desplegar
 ```bash
 npm run deploy

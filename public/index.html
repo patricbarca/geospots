@@ -83,6 +83,20 @@
         <button type="button" class="chip small" id="homeAccount" hidden></button>
       </header>
 
+      <!-- Contraseña nueva (link ?reset=) -->
+      <section id="homeReset" hidden>
+        <form id="resetForm" class="form reset-card">
+          <h2>Contraseña nueva</h2>
+          <p class="hint" id="resetWho"></p>
+          <label for="rPass">Contraseña nueva (mínimo 8 caracteres)</label>
+          <input id="rPass" type="password" name="password" autocomplete="new-password" minlength="8" required>
+          <label for="rPass2">Repítela</label>
+          <input id="rPass2" type="password" name="password2" autocomplete="new-password" minlength="8" required>
+          <p class="form-error" id="resetErr" hidden></p>
+          <div class="form-actions"><button type="submit" class="primary">Guardar y entrar</button></div>
+        </form>
+      </section>
+
       <!-- Sin sesión -->
       <section id="homeOut" hidden>
         <p class="home-lead">Carga tus GeoPDF, ubícate con el GPS y registra defectos, eventos y notas con fotos. Tu equipo lo ve todo, incluso sin señal.</p>
@@ -99,6 +113,7 @@
             <label for="lPass">Contraseña</label>
             <input id="lPass" type="password" name="password" autocomplete="current-password" required>
             <p class="form-error" id="loginErr" hidden></p>
+                <p class="hint forgot">¿Olvidaste tu contraseña? Pídele a tu administrador un link para cambiarla.</p>
             <div class="form-actions"><button type="submit" class="primary">Entrar</button></div>
           </form>
           <form id="signupForm" class="form" hidden>

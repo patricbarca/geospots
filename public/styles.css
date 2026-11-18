@@ -252,3 +252,8 @@ body.table-open .bar, body.table-open .fabs, body.table-open .readout { visibili
 .list.compact li .who { flex: 1; min-width: 0; }
 .list.compact li .who small { display: block; margin: 0; }
 .list.compact li .rm { background: rgba(255,138,128,.12); color: #ff8a80; border: 0; border-radius: 8px; padding: 5px 9px; font-size: 12px; margin-left: 8px; }
+
+/* Contraseña nueva */
+.reset-card { background: var(--panel-solid); border: 1px solid var(--line); border-radius: 18px; padding: 16px; }
+.reset-card h2 { margin: 0 0 4px; font-size: 19px; }
+.forgot { margin: 10px 0 0; }
